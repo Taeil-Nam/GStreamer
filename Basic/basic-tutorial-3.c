@@ -4,9 +4,11 @@
 typedef struct _CustomData {
   GstElement *pipeline;
   GstElement *source;
-  GstElement *convert;
-  GstElement *resample;
-  GstElement *sink;
+  GstElement *a_convert;
+  GstElement *a_resample;
+  GstElement *a_sink;
+  GstElement *v_convert;
+  GstElement *v_sink;
 } CustomData;
 
 /* Handler for the pad-added signal */
@@ -24,22 +26,27 @@ int main(int argc, char *argv[]) {
 
   /* Create the elements */
   data.source = gst_element_factory_make ("uridecodebin", "source");
-  data.convert = gst_element_factory_make ("audioconvert", "convert");
-  data.resample = gst_element_factory_make ("audioresample", "resample");
-  data.sink = gst_element_factory_make ("autoaudiosink", "sink");
+  data.a_convert = gst_element_factory_make ("audioconvert", "a_convert");
+  data.a_resample = gst_element_factory_make ("audioresample", "a_resample");
+  data.a_sink = gst_element_factory_make ("autoaudiosink", "a_sink");
+  data.v_convert = gst_element_factory_make ("videoconvert", "v_convert");
+  data.v_sink = gst_element_factory_make ("autovideosink", "v_sink");
 
   /* Create the empty pipeline */
   data.pipeline = gst_pipeline_new ("test-pipeline");
 
-  if (!data.pipeline || !data.source || !data.convert || !data.resample || !data.sink) {
+  if (!data.pipeline || !data.source || !data.a_convert || !data.a_resample || !data.a_sink
+      || !data.v_convert || !data.v_sink) {
     g_printerr ("Not all elements could be created.\n");
     return -1;
   }
 
   /* Build the pipeline. Note that we are NOT linking the source at this
    * point. We will do it later. */
-  gst_bin_add_many (GST_BIN (data.pipeline), data.source, data.convert, data.resample, data.sink, NULL);
-  if (!gst_element_link_many (data.convert, data.resample, data.sink, NULL)) {
+  gst_bin_add_many (GST_BIN (data.pipeline), data.source, data.a_convert, data.a_resample, data.a_sink,
+                    data.v_convert, data.v_sink, NULL);
+  if (!gst_element_link_many (data.a_convert, data.a_resample, data.a_sink, NULL)
+      || !gst_element_link_many (data.v_convert, data.v_sink, NULL)) {
     g_printerr ("Elements could not be linked.\n");
     gst_object_unref (data.pipeline);
     return -1;
@@ -110,7 +117,8 @@ int main(int argc, char *argv[]) {
 
 /* This function will be called by the pad-added signal */
 static void pad_added_handler (GstElement *src, GstPad *new_pad, CustomData *data) {
-  GstPad *sink_pad = gst_element_get_static_pad (data->convert, "sink");
+  GstPad *a_sink_pad = gst_element_get_static_pad (data->a_convert, "a_sink");
+  GstPad *v_sink_pad = gst_element_get_static_pad (data->v_convert, "v_sink");
   GstPadLinkReturn ret;
   GstCaps *new_pad_caps = NULL;
   GstStructure *new_pad_struct = NULL;
@@ -118,34 +126,35 @@ static void pad_added_handler (GstElement *src, GstPad *new_pad, CustomData *dat
 
   g_print ("Received new pad '%s' from '%s':\n", GST_PAD_NAME (new_pad), GST_ELEMENT_NAME (src));
 
-  /* If our converter is already linked, we have nothing to do here */
-  if (gst_pad_is_linked (sink_pad)) {
-    g_print ("We are already linked. Ignoring.\n");
-    goto exit;
-  }
-
   /* Check the new pad's type */
   new_pad_caps = gst_pad_get_current_caps (new_pad);
   new_pad_struct = gst_caps_get_structure (new_pad_caps, 0);
   new_pad_type = gst_structure_get_name (new_pad_struct);
-  if (!g_str_has_prefix (new_pad_type, "audio/x-raw")) {
-    g_print ("It has type '%s' which is not raw audio. Ignoring.\n", new_pad_type);
-    goto exit;
-  }
 
-  /* Attempt the link */
-  ret = gst_pad_link (new_pad, sink_pad);
-  if (GST_PAD_LINK_FAILED (ret)) {
-    g_print ("Type is '%s' but link failed.\n", new_pad_type);
+  if (g_str_has_prefix(new_pad_type, "audio/x-raw")) {
+    GstPad *sink_pad = gst_element_get_static_pad(data->a_convert, "sink");
+    if (gst_pad_is_linked(sink_pad)) {
+      g_print("Audio pad already linked. Ignoring.\n");
+    } else if (gst_pad_link(new_pad, sink_pad) == GST_PAD_LINK_OK) {
+      g_print("Audio pad linked successfully.\n");
+    } else {
+      g_print("Audio pad link failed.\n");
+    }
+    gst_object_unref(sink_pad);
+  } else if (g_str_has_prefix(new_pad_type, "video/x-raw")) {
+    GstPad *sink_pad = gst_element_get_static_pad(data->v_convert, "sink");
+    if (gst_pad_is_linked(sink_pad)) {
+      g_print("Video pad already linked. Ignoring.\n");
+    } else if (gst_pad_link(new_pad, sink_pad) == GST_PAD_LINK_OK) {
+      g_print("Video pad linked successfully.\n");
+    } else {
+      g_print("Video pad link failed.\n");
+    }
+    gst_object_unref(sink_pad);
   } else {
-    g_print ("Link succeeded (type '%s').\n", new_pad_type);
+    g_print("Unknown pad type '%s'. Ignoring.\n", new_pad_type);
   }
 
-exit:
-  /* Unreference the new pad's caps, if we got them */
   if (new_pad_caps != NULL)
-    gst_caps_unref (new_pad_caps);
-
-  /* Unreference the sink pad */
-  gst_object_unref (sink_pad);
+    gst_caps_unref(new_pad_caps);
 }
