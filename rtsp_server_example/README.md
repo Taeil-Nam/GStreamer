@@ -31,7 +31,6 @@
    ```sh
    $> gcc screen_rtsp_server.c -o screen_rtsp_server `pkg-config --cflags --libs gstreamer-1.0 gstreamer-rtsp-server-1.0`
    ```
-4. Execute program
 
 <!-- USAGE -->
 ## Usage
