@@ -1,1 +1,2 @@
-## Gstreamer
+## GStreamer
+GStreamer Project Repository
